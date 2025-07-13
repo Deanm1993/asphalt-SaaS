@@ -1,173 +1,175 @@
-# Viable – SaaS for Australian Asphalt Contractors
+# Viable – Asphalt SaaS Platform
 
-![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)
-[![Deploy to Vercel](https://vercel.com/button)](https://vercel.com/new)
-
-Viable is a mobile-first, multi-tenant platform that helps Australian asphalt contractors (5-30 employees) streamline quoting, scheduling, and site compliance.  
-The goal: **save 10 + hours of admin each week and cut quote errors by 90 %**.
+Mobile-first SaaS for Australian asphalt contractors.  
+Built with **Next.js 14 + TypeScript, Tailwind CSS (shadcn/ui)** on the front-end and **Supabase (Postgres + Auth)** on the back-end.
 
 ---
 
-## ✨ Key MVP Features
-
-| Module | Highlights |
-|--------|------------|
-| Job Scoping | Multi-step form with interactive map, automatic tonnage & material calculations (incl. 5 % waste), ABN validation, GST 10 % handling |
-| Customer Management | CRUD for clients, repeat-job templates, contact sync |
-| Scheduling | Drag-and-drop calendar, crew colour-coding, basic weather overlay (BOM) |
-| Quote PDF | Branded PDF generation with line-item breakdown & compliance notes |
-
----
-
-## 🔧 Tech Stack
-
-• **Frontend**: Next.js 14 (App Router) + TypeScript  
-• **UI**: Tailwind CSS, [shadcn/ui](https://ui.shadcn.com)  
-• **Backend**: Supabase  
- • PostgreSQL for data  
- • Supabase Auth (email/password, magic-link)  
- • Edge Functions (future)  
-• **Storage**: Supabase Storage (site photos, PDFs)  
-• **Deployment**: Vercel (or self-host via Docker)  
-• **PDFs**: `react-pdf` (client) + server-side render in Edge Function  
-• **Maps**: Mapbox GL JS  
-• **Weather**: Bureau of Meteorology (BOM) API integration  
-
----
-
-## 🖥️ Prerequisites
-
-1. **Node.js ≥ 18** and npm (or pnpm/yarn)  
-2. **Supabase account** & `supabase` CLI  
-3. Mapbox access token  
-4. (Optional) BOM API key for extended forecast
-
----
-
-## 🚀 Quick Start
+## 1. Quick Start (Local)
 
 ```bash
-# 1. Clone
-git clone https://github.com/your-org/viable.git
-cd viable
+git clone https://github.com/your-org/viable-saas.git
+cd viable-saas
 
-# 2. Install
+# Install Node deps
 npm install
 
-# 3. Configure environment
+# Copy env template and fill values
 cp .env.example .env.local
-# then add SUPABASE_URL, SUPABASE_ANON_KEY, MAPBOX_TOKEN, etc.
+# ↳ add NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY
+# ↳ add SUPABASE_SERVICE_ROLE_KEY  (⚠️ server-only)
 
-# 4. Start Supabase locally
-supabase start
-
-# 5. Push database schema
-supabase db push
-
-# 6. Run dev server
-npm run dev
-```
-
-Open `http://localhost:3000` – you should see the Viable landing page and be able to register a tenant.
-
----
-
-## 📂 Project Structure
-
-```
-.
-├── app/                 # Next.js route handlers & pages
-│   ├── (auth)/          # Login / Register / Reset
-│   ├── dashboard/       # Auth-protected shell
-│   └── api/             # Route handlers (Server Actions)
-├── components/          # Re-usable UI components
-├── features/
-│   ├── job-scoping/
-│   ├── customers/
-│   ├── scheduling/
-│   └── pdf/
-├── lib/                 # Helpers (validation, calc, supabase-client)
-├── db/                  # Supabase migrations & seeders
-├── scripts/             # Utility scripts (e.g. PDF build)
-├── tailwind.config.ts
-└── supabase/            # Local dev config
+# Start dev server
+npm run dev      # http://localhost:3000
 ```
 
 ---
 
-## 🏛️ Database Schema (excerpt)
+## 2. Supabase Database & Schema
 
-| Table | Purpose |
-|-------|---------|
-| `tenants` | Multi-tenant separation (row level security) |
-| `users`   | Auth users (Supabase) + role (`admin`, `crew`) |
-| `customers` | Client businesses & contacts |
-| `jobs` | Core job record; status enum (`quoted`,`scheduled`,`in_progress`,`complete`) |
-| `job_items` | Area/depth/mix lines associated with a job |
-| `schedules` | Calendar entries incl. crew id & start/end |
+### 2.1 Required Keys
 
-See `db/migrations/*` for full DDL.
+| key | where to find | purpose |
+|-----|---------------|---------|
+| `NEXT_PUBLIC_SUPABASE_URL` | dashboard → Settings → API | client URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | same page | browser auth / RLS |
+| `SUPABASE_SERVICE_ROLE_KEY` | **secret** key on API page | admin tasks (migrations, seeds) |
 
----
+> Never expose the service role key to the browser or commit it to git.
 
-## 💰 Australian Specifics
+### 2.2 Apply the Schema (two options)
 
-• **GST**: All prices include 10 % GST by default; utilities in `lib/gst.ts`  
-• **ABN Validation**: Server action query to ABR API (`abr.business.gov.au/json/AbnDetails`)  
-• **TPAR**: Year-end contractor payments report endpoint (planned)  
-• **State Specs**: NSW RMS, VIC DoT, etc. stored in `reference_specifications` table
+#### A) Script (Node + pg) – works on most hosts
 
----
+```bash
+# install pg + dotenv the first time
+npm install pg dotenv
 
-## 🛠️ Scripts
+# run script (forces IPv4 to avoid ENETUNREACH)
+node scripts/apply-schema-pg.js
+```
 
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Start Next.js with hot-reload |
-| `npm run build` | Production build |
-| `npm run lint` | ESLint + TypeScript checks |
-| `npm run format` | Prettier write |
-| `supabase db push` | Apply latest migrations |
-| `supabase functions serve` | Run Edge Functions locally |
+The script:
+* Forces IPv4 DNS lookup (fixes `ENETUNREACH` seen on some VPS/VMs).
+* Splits `db/migrations/01_initial_schema.sql` into statements inside a transaction.
+* Inserts a bootstrap `auth.users` row so the FK on `app.users(id)` succeeds (avoids error 23503).
 
----
+If you hit `ENOTFOUND db.<ref>.supabase.co`, your VM DNS cannot resolve the Postgres host.  
+ ➟ Use option B instead.
 
-## 🧭 Development Guidelines
+#### B) Supabase SQL Editor – guaranteed to work
 
-1. **Git Flow**  
-   • `main` = prod, `develop` = integration, feature branches PR → develop  
-2. **Code Style**  
-   • ESLint + Prettier enforced (run pre-commit)  
-3. **Commits**: Conventional Commits (`feat:`, `fix:`, `chore:`)  
-4. **Database**  
-   • Never edit SQL directly in prod; create migration via Supabase CLI  
-5. **Testing**  
-   • Unit tests with Vitest, e2e coming (Playwright)  
-6. **Secrets**  
-   • Use `.env.local`, never commit keys  
+1. Dashboard → **SQL Editor** → New Query  
+2. Paste contents of `scripts/fix-schema.sql` (adds the bootstrap auth row, then full schema).  
+3. Run.
 
 ---
 
-## 📅 Roadmap
+## 3. Fixing Missing UI Components (Build Errors)
 
-- Traffic control integration & resource planning  
-- Live temperature monitoring via Bluetooth probe  
-- Offline Progressive Web App (PWA) caching  
-- Xero / MYOB accounting sync  
-- Concrete & civil works modules  
+Running `npm run build` before the UI library is complete produces:
+
+```
+Module not found: '@/components/ui/label' …
+```
+
+Viable ships only the shadcn primitives you actually need.  
+Create / verify these files:
+
+```
+components/ui/
+ ├─ label.tsx
+ ├─ checkbox.tsx
+ ├─ card.tsx
+ ├─ tabs.tsx
+ ├─ separator.tsx
+ ├─ select.tsx
+ ├─ alert.tsx
+ ├─ breadcrumb.tsx
+ └─ dropdown-menu.tsx
+features/job-scoping/job-site-form.tsx
+```
+
+> All of these components are included in the repo under *components/ui* and *features/*; if you cloned before they were added simply `git pull` to update.
+
+Install runtime deps once:
+
+```bash
+npm install \
+  @radix-ui/react-label \
+  @radix-ui/react-checkbox \
+  @radix-ui/react-tabs \
+  @radix-ui/react-separator \
+  @radix-ui/react-select \
+  @radix-ui/react-dropdown-menu \
+  class-variance-authority lucide-react
+```
+
+Re-build:
+
+```bash
+npm run build
+```
 
 ---
 
-## 🤝 Contributing
+## 4. Production Deployment (VM)
 
-Pull requests are welcome! Please open an issue first to discuss changes.
+### 4.1 PM2
 
-1. Fork → Feature branch → PR to `develop`  
-2. Ensure `npm run lint` and tests pass  
-3. Describe the problem & solution clearly
+```bash
+# build & serve
+npm run build
+pm2 start npm --name viable-saas -- start
+pm2 save
+pm2 startup        # optional boot autostart
+```
+
+### 4.2 Nginx reverse proxy
+
+```nginx
+server {
+    listen 80;
+    server_name <YOUR_VM_IP>;   # or domain
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
+```
+
+```bash
+sudo apt install nginx
+sudo tee /etc/nginx/sites-available/viable-saas  # paste config
+sudo ln -s /etc/nginx/sites-available/viable-saas /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl restart nginx
+```
+
+Add Let’s Encrypt (`sudo certbot --nginx`) for HTTPS.
 
 ---
 
-## 📜 License
+## 5. Troubleshooting
 
-MIT © 2025 Viable Pty Ltd
+| Symptom | Fix |
+|---------|-----|
+| `ENETUNREACH 2406:…` when running schema script | VM only has IPv6 route → use `apply-schema-pg.js` which forces IPv4, or run through SQL Editor. |
+| `ENOTFOUND db.<ref>.supabase.co` | DNS blocked – run schema via SQL Editor or add DNS servers (1.1.1.1, 8.8.8.8) to VM. |
+| `23503 users_id_fkey` | Ensure bootstrap row in `auth.users` exists (included in `fix-schema.sql`). |
+| `Module not found '@/components/ui/*'` | Pull latest repo or create missing shadcn/ui files, then `npm install` required Radix packages. |
+
+---
+
+## 6. What Next?
+
+* See `GETTING_STARTED.md` for feature walk-through and roadmap.
+* Open issues or PRs – contributions welcome!
+
+Happy paving 🚧
