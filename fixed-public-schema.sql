@@ -1,27 +1,28 @@
--- Simple schema in public namespace for Supabase compatibility
--- This puts tables in the default public schema where Supabase expects them
+-- Simple and reliable public schema for Supabase
+-- Drop and recreate to ensure clean state
 
 -- Enable necessary extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Create enums in public schema
-DO $$ 
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'user_role' AND typnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'public')) THEN
-        CREATE TYPE public.user_role AS ENUM (
-            'owner',      -- Business owner
-            'admin',      -- Office admin
-            'estimator',  -- Creates quotes
-            'supervisor', -- Field supervisor
-            'operator',   -- Machine operator
-            'crew',       -- General crew member
-            'readonly'    -- Client or view-only access
-        );
-    END IF;
-END $$;
+-- Drop existing objects if they exist (order matters due to dependencies)
+DROP TABLE IF EXISTS crews CASCADE;
+DROP TABLE IF EXISTS users CASCADE;
+DROP TABLE IF EXISTS tenants CASCADE;
+DROP TYPE IF EXISTS user_role CASCADE;
 
--- Create tables in public schema
-CREATE TABLE IF NOT EXISTS tenants (
+-- Create enum type
+CREATE TYPE user_role AS ENUM (
+    'owner',      -- Business owner
+    'admin',      -- Office admin
+    'estimator',  -- Creates quotes
+    'supervisor', -- Field supervisor
+    'operator',   -- Machine operator
+    'crew',       -- General crew member
+    'readonly'    -- Client or view-only access
+);
+
+-- Create tenants table
+CREATE TABLE tenants (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   name VARCHAR(100) NOT NULL,
   slug VARCHAR(50) UNIQUE NOT NULL,
@@ -43,46 +44,30 @@ CREATE TABLE IF NOT EXISTS tenants (
   subscription_status VARCHAR(20) DEFAULT 'trial', -- trial, active, past_due, cancelled
   trial_ends_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  
+  -- Constraints
+  CONSTRAINT valid_state CHECK (state IN ('NSW', 'VIC', 'QLD', 'SA', 'WA', 'TAS', 'NT', 'ACT')),
+  CONSTRAINT valid_abn CHECK (abn ~ '^[0-9]{2} [0-9]{3} [0-9]{3} [0-9]{3}$')
 );
 
--- Add constraints only if they don't exist
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'valid_state') THEN
-        ALTER TABLE tenants ADD CONSTRAINT valid_state CHECK (state IN ('NSW', 'VIC', 'QLD', 'SA', 'WA', 'TAS', 'NT', 'ACT'));
-    END IF;
-    
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'valid_abn') THEN
-        ALTER TABLE tenants ADD CONSTRAINT valid_abn CHECK (abn ~ '^[0-9]{2} [0-9]{3} [0-9]{3} [0-9]{3}$');
-    END IF;
-END $$;
-
--- User profiles (extends Supabase Auth)
-CREATE TABLE IF NOT EXISTS users (
+-- Create users table
+CREATE TABLE users (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   first_name VARCHAR(50) NOT NULL,
   last_name VARCHAR(50) NOT NULL,
   email VARCHAR(100) NOT NULL,
   phone VARCHAR(20),
-  role public.user_role NOT NULL DEFAULT 'crew',
+  role user_role NOT NULL DEFAULT 'crew',
   avatar_url TEXT,
   is_active BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Add user constraint only if it doesn't exist
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'user_tenant_required') THEN
-        ALTER TABLE users ADD CONSTRAINT user_tenant_required CHECK (tenant_id IS NOT NULL);
-    END IF;
-END $$;
-
--- Crews (Teams)
-CREATE TABLE IF NOT EXISTS crews (
+-- Create crews table
+CREATE TABLE crews (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   name VARCHAR(50) NOT NULL,
@@ -113,27 +98,22 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Drop existing policies first, then recreate them
-DROP POLICY IF EXISTS tenant_isolation_policy ON users;
-DROP POLICY IF EXISTS tenant_isolation_policy ON crews;
-DROP POLICY IF EXISTS tenant_self_view_policy ON tenants;
-
 -- Create RLS Policies
 CREATE POLICY tenant_isolation_policy ON users
-  USING (tenant_id = get_current_tenant_id());
+  FOR ALL USING (tenant_id = get_current_tenant_id());
 
 CREATE POLICY tenant_isolation_policy ON crews
-  USING (tenant_id = get_current_tenant_id());
+  FOR ALL USING (tenant_id = get_current_tenant_id());
 
 -- Special policy for tenants table
 CREATE POLICY tenant_self_view_policy ON tenants
-  USING (id = get_current_tenant_id() OR auth.jwt() ->> 'role' = 'service_role');
+  FOR ALL USING (id = get_current_tenant_id() OR auth.jwt() ->> 'role' = 'service_role');
 
 -- Create indexes
-CREATE INDEX IF NOT EXISTS idx_users_tenant_id ON users(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_crews_tenant_id ON crews(tenant_id);
+CREATE INDEX idx_users_tenant_id ON users(tenant_id);
+CREATE INDEX idx_crews_tenant_id ON crews(tenant_id);
 
--- Insert a demo tenant if it doesn't exist
+-- Insert demo tenant
 INSERT INTO tenants (
   id, 
   name, 
@@ -145,8 +125,7 @@ INSERT INTO tenants (
   postcode, 
   phone, 
   email
-) 
-SELECT 
+) VALUES (
   '00000000-0000-0000-0000-000000000001', 
   'Demo Company', 
   'demo-company', 
@@ -157,6 +136,4 @@ SELECT
   '2000', 
   '0412 345 678', 
   'demo@viable-saas.com.au'
-WHERE NOT EXISTS (
-  SELECT 1 FROM tenants WHERE id = '00000000-0000-0000-0000-000000000001'
 );
