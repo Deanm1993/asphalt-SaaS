@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
     const tenantId = uuidv4();
     
     const { error: tenantError } = await supabase
-      .from("app.tenants")
+      .from("tenants")
       .insert({
         id: tenantId,
         name: businessName,
@@ -132,7 +132,7 @@ export async function POST(request: NextRequest) {
       
       // Clean up the tenant if auth fails
       await supabase
-        .from("app.tenants")
+        .from("tenants")
         .delete()
         .eq("id", tenantId);
       
@@ -156,7 +156,7 @@ export async function POST(request: NextRequest) {
     if (!userId) {
       // Clean up the tenant if user ID is missing
       await supabase
-        .from("app.tenants")
+        .from("tenants")
         .delete()
         .eq("id", tenantId);
       
@@ -167,7 +167,7 @@ export async function POST(request: NextRequest) {
     }
     
     const { error: userError } = await supabase
-      .from("app.users")
+      .from("users")
       .insert({
         id: userId,
         tenant_id: tenantId,
@@ -183,7 +183,7 @@ export async function POST(request: NextRequest) {
       // Clean up auth user and tenant if profile creation fails
       await supabase.auth.admin.deleteUser(userId);
       await supabase
-        .from("app.tenants")
+        .from("tenants")
         .delete()
         .eq("id", tenantId);
       
@@ -195,7 +195,7 @@ export async function POST(request: NextRequest) {
     
     // Create a default crew for the tenant
     const { error: crewError } = await supabase
-      .from("app.crews")
+      .from("crews")
       .insert({
         tenant_id: tenantId,
         name: "Main Crew",

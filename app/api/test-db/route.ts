@@ -10,28 +10,28 @@ export async function GET(request: NextRequest) {
     // Test basic connection
     console.log("Testing database connection...");
     
-    // Check if app schema tables exist
-    console.log("Testing app.tenants table...");
+    // Check if tables exist in public schema
+    console.log("Testing tenants table...");
     const { data: tenantsTest, error: tenantsError } = await supabase
-      .from("app.tenants")
+      .from("tenants")
       .select("id, name")
       .limit(1);
     
     console.log("Tenants test:", { tenantsTest, tenantsError });
     
     // Check if users table exists
-    console.log("Testing app.users table...");
+    console.log("Testing users table...");
     const { data: usersTest, error: usersError } = await supabase
-      .from("app.users")
+      .from("users")
       .select("id, first_name")
       .limit(1);
     
     console.log("Users test:", { usersTest, usersError });
     
     // Check if crews table exists
-    console.log("Testing app.crews table...");
+    console.log("Testing crews table...");
     const { data: crewsTest, error: crewsError } = await supabase
-      .from("app.crews")
+      .from("crews")
       .select("id, name")
       .limit(1);
     
