@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
     const tenantId = uuidv4();
     
     const { error: tenantError } = await supabase
-      .from("tenants")
+      .from("app.tenants")
       .insert({
         id: tenantId,
         name: businessName,
@@ -96,10 +96,12 @@ export async function POST(request: NextRequest) {
       });
     
     if (tenantError) {
-      console.error("Tenant creation error:", tenantError);
+      console.error("Tenant creation error:", JSON.stringify(tenantError, null, 2));
+      console.error("Tenant error type:", typeof tenantError);
+      console.error("Tenant error message:", tenantError?.message);
       
       // Check for duplicate ABN
-      if (tenantError.message.includes("unique constraint") && tenantError.message.includes("abn")) {
+      if (tenantError?.message && tenantError.message.includes("unique constraint") && tenantError.message.includes("abn")) {
         return NextResponse.json(
           { error: "An account with this ABN already exists" },
           { status: 409 }
@@ -130,12 +132,12 @@ export async function POST(request: NextRequest) {
       
       // Clean up the tenant if auth fails
       await supabase
-        .from("tenants")
+        .from("app.tenants")
         .delete()
         .eq("id", tenantId);
       
       // Check for duplicate email
-      if (authError.message.includes("already registered")) {
+      if (authError.message && authError.message.includes("already registered")) {
         return NextResponse.json(
           { error: "This email is already registered" },
           { status: 409 }
@@ -154,7 +156,7 @@ export async function POST(request: NextRequest) {
     if (!userId) {
       // Clean up the tenant if user ID is missing
       await supabase
-        .from("tenants")
+        .from("app.tenants")
         .delete()
         .eq("id", tenantId);
       
@@ -165,7 +167,7 @@ export async function POST(request: NextRequest) {
     }
     
     const { error: userError } = await supabase
-      .from("users")
+      .from("app.users")
       .insert({
         id: userId,
         tenant_id: tenantId,
@@ -181,7 +183,7 @@ export async function POST(request: NextRequest) {
       // Clean up auth user and tenant if profile creation fails
       await supabase.auth.admin.deleteUser(userId);
       await supabase
-        .from("tenants")
+        .from("app.tenants")
         .delete()
         .eq("id", tenantId);
       
@@ -193,7 +195,7 @@ export async function POST(request: NextRequest) {
     
     // Create a default crew for the tenant
     const { error: crewError } = await supabase
-      .from("crews")
+      .from("app.crews")
       .insert({
         tenant_id: tenantId,
         name: "Main Crew",
@@ -216,8 +218,8 @@ export async function POST(request: NextRequest) {
       // Non-critical error, user can sign in manually
     }
     
-    // Redirect to onboarding or dashboard
-    return NextResponse.redirect(new URL("/dashboard/onboarding", request.url), {
+    // Redirect to dashboard
+    return NextResponse.redirect(new URL("/dashboard", request.url), {
       status: 302,
     });
   } catch (error) {
